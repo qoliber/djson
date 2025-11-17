@@ -29,6 +29,12 @@ use Qoliber\DJson\Directives\MatchDirective;
  */
 class DJson
 {
+    /** Render mode for debug output with pretty printing */
+    public const RENDER_MODE_DEBUG = 'debug';
+
+    /** Render mode for compact production output */
+    public const RENDER_MODE_COMPACT = 'compact';
+
     private const DIRECTIVE_ELSE = '@djson else';
 
     /** @var \Qoliber\DJson\DirectiveInterface[] */
@@ -39,10 +45,47 @@ class DJson
 
     private mixed $lastDirectiveResult = null;
 
-    public function __construct()
+    private string $renderMode = self::RENDER_MODE_COMPACT;
+
+    /**
+     * Constructor
+     *
+     * @param string $renderMode Render mode: RENDER_MODE_DEBUG or RENDER_MODE_COMPACT
+     */
+    public function __construct(string $renderMode = self::RENDER_MODE_COMPACT)
     {
+        $this->setRenderMode($renderMode);
         $this->functions = new FunctionProcessor();
         $this->registerBuiltInDirectives();
+    }
+
+    /**
+     * Set the render mode for JSON output
+     *
+     * @param string $mode Render mode: RENDER_MODE_DEBUG or RENDER_MODE_COMPACT
+     * @return $this
+     * @throws \InvalidArgumentException If mode is invalid
+     */
+    public function setRenderMode(string $mode): self
+    {
+        if ($mode !== self::RENDER_MODE_DEBUG && $mode !== self::RENDER_MODE_COMPACT) {
+            throw new \InvalidArgumentException(
+                "Invalid render mode '{$mode}'. Use DJson::RENDER_MODE_DEBUG or DJson::RENDER_MODE_COMPACT"
+            );
+        }
+
+        $this->renderMode = $mode;
+        return $this;
+    }
+
+    /**
+     * Get the current render mode
+     *
+     * @return string Current render mode
+     */
+    public function getRenderMode(): string
+    {
+        return $this->renderMode;
     }
 
     /**
@@ -90,13 +133,22 @@ class DJson
      *
      * @param array|string $template Template array or JSON string
      * @param array $data Data context
-     * @param int $flags JSON encode flags
+     * @param int|null $flags JSON encode flags (null = use render mode default)
      * @return string JSON string result
      * @throws \JsonException If JSON encoding fails
      */
-    public function processToJson(array|string $template, array $data, int $flags = JSON_THROW_ON_ERROR): string
+    public function processToJson(array|string $template, array $data, ?int $flags = null): string
     {
         $result = $this->process($template, $data);
+
+        // If no flags provided, use render mode to determine formatting
+        if ($flags === null) {
+            $flags = JSON_THROW_ON_ERROR;
+            if ($this->renderMode === self::RENDER_MODE_DEBUG) {
+                $flags |= JSON_PRETTY_PRINT;
+            }
+        }
+
         return json_encode($result, $flags);
     }
 
@@ -124,14 +176,23 @@ class DJson
      *
      * @param string $templatePath Path to template file
      * @param array $data Data context
-     * @param int $flags JSON encode flags
+     * @param int|null $flags JSON encode flags (null = use render mode default)
      * @return string JSON string result
      * @throws \InvalidArgumentException If file not found
      * @throws \JsonException If JSON is invalid or encoding fails
      */
-    public function processFileToJson(string $templatePath, array $data, int $flags = JSON_THROW_ON_ERROR): string
+    public function processFileToJson(string $templatePath, array $data, ?int $flags = null): string
     {
         $result = $this->processFile($templatePath, $data);
+
+        // If no flags provided, use render mode to determine formatting
+        if ($flags === null) {
+            $flags = JSON_THROW_ON_ERROR;
+            if ($this->renderMode === self::RENDER_MODE_DEBUG) {
+                $flags |= JSON_PRETTY_PRINT;
+            }
+        }
+
         return json_encode($result, $flags);
     }
 

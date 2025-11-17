@@ -6,7 +6,6 @@ composer.lock
 
 # PHP
 vendor/
-composer.lock
 
 # IDE
 *.swp
