@@ -5,6 +5,122 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-11-17
+
+### Added
+
+#### Render Mode Feature
+- **Render Mode Support**: Choose between debug and production output modes
+  - `RENDER_MODE_DEBUG` - Pretty-printed JSON with indentation (uses `JSON_PRETTY_PRINT`)
+  - `RENDER_MODE_COMPACT` - Single-line compact JSON for production (default)
+  - `setRenderMode(string $mode): self` - Fluent interface to set render mode
+  - `getRenderMode(): string` - Get current render mode
+  - Constructor accepts optional `$renderMode` parameter (defaults to `RENDER_MODE_COMPACT`)
+
+- **Enhanced processToJson() Method** (`src/DJson.php`)
+  - Automatically applies `JSON_PRETTY_PRINT` when in DEBUG mode
+  - Maintains backward compatibility with explicit `$flags` parameter
+  - Optimized for production with compact single-line output by default
+
+- **Enhanced processFileToJson() Method** (`src/DJson.php`)
+  - Respects render mode for file-based template processing
+  - Consistent behavior with `processToJson()`
+
+#### Testing
+
+- **JSON String Template Test Suite** (`tests/JsonStringAndScalarArrayTest.php`)
+  - 18 tests validating JSON string input processing (not just PHP arrays)
+  - Tests for scalar arrays (strings, numbers, booleans, mixed types)
+  - Loop over scalar arrays with index support
+  - JSON string to JSON string transformation tests
+  - Validates that templates work as JSON strings (real-world use case for `<script>` tags)
+
+- **Structured Data & JSON-LD Test Suite** (`tests/StructuredDataTest.php`)
+  - 11 tests covering real-world Schema.org JSON-LD use cases
+  - **Breadcrumb tests** including exact Sportano.pl example with Polish characters
+  - **Product Schema** with single and multiple offers
+  - **Organization Schema** with contact points
+  - **Article Schema** with author and publication data
+  - **E-commerce Product List** (ItemList)
+  - Tests for arrays of objects with special keys (`@type`, `@id`, `@context`)
+  - Nested loops in JSON-LD structures
+  - Unicode character handling and proper JSON escaping
+
+- **Render Mode Test Suite** (`tests/RenderModeTest.php`)
+  - 16 tests for render mode functionality
+  - Debug mode pretty-print validation
+  - Compact mode single-line validation
+  - Fluent interface chaining tests
+  - Mode switching tests
+
+### Technical Details
+
+**Render Mode Usage:**
+```php
+// Debug mode - pretty printed JSON
+$djson = new DJson(DJson::RENDER_MODE_DEBUG);
+$json = $djson->processToJson($template, $data);
+// Output: Multi-line formatted JSON with indentation
+
+// Compact mode - single line (default)
+$djson = new DJson(DJson::RENDER_MODE_COMPACT);
+$json = $djson->processToJson($template, $data);
+// Output: {"@context":"https://schema.org/",...}
+
+// Fluent interface
+$json = (new DJson())
+    ->setRenderMode(DJson::RENDER_MODE_DEBUG)
+    ->processToJson($template, $data);
+```
+
+**Real-World JSON-LD Example:**
+```php
+// JSON string template (as used in <script type="application/ld+json">)
+$jsonTemplate = '{
+    "@context": "https://schema.org/",
+    "@type": "BreadcrumbList",
+    "itemListElement": {
+        "@djson for breadcrumbs as crumb": {
+            "@type": "ListItem",
+            "position": "{{crumb.position}}",
+            "item": {
+                "@id": "{{crumb.url}}",
+                "name": "{{crumb.name}}"
+            }
+        }
+    }
+}';
+
+$data = ['breadcrumbs' => [
+    ['position' => 1, 'url' => 'https://example.com/', 'name' => 'Home'],
+    ['position' => 2, 'url' => 'https://example.com/products', 'name' => 'Products']
+]];
+
+$result = $djson->process($jsonTemplate, $data);
+// JSON string → Array → Process → Array → JSON string
+// Guarantees valid JSON structure with proper nesting
+```
+
+### Files Changed
+- `src/DJson.php` - Added render mode constants and methods
+- `tests/RenderModeTest.php` - Render mode test coverage (+277 lines)
+- `tests/JsonStringAndScalarArrayTest.php` - JSON string and scalar array tests (+377 lines)
+- `tests/StructuredDataTest.php` - Real-world JSON-LD tests (+465 lines)
+
+### Test Statistics
+- **170 total tests** (was 125 in v1.1.0)
+- **554 total assertions** (was 424 in v1.1.0)
+- **+45 new tests** covering render modes, JSON strings, and JSON-LD
+- **+130 new assertions**
+
+### Backward Compatibility
+- ✅ Fully backward compatible - default mode is COMPACT (same behavior as before)
+- ✅ No breaking changes to existing API
+- ✅ Optional render mode parameter in constructor
+- ✅ Existing `processToJson()` calls work unchanged
+
+---
+
 ## [1.1.0] - 2025-11-16
 
 ### Added
@@ -156,5 +272,6 @@ $result = $djson->process($template, ['product' => $product]);
 
 ---
 
+[1.2.0]: https://github.com/qoliber/djson/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/qoliber/djson/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/qoliber/djson/releases/tag/v1.0.0
