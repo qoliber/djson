@@ -67,8 +67,8 @@ class FunctionProcessor
 
         $expression = substr($expression, 7); // strlen('@djson ')
 
-        // Extract function chain
-        if (!preg_match('/^([a-z_|]+)(\s|$)/i', $expression, $matches)) {
+        // Extract function chain (allow letters, numbers, underscores, pipes)
+        if (!preg_match('/^([a-z0-9_|]+)(\s|$)/i', $expression, $matches)) {
             return false;
         }
 
@@ -103,7 +103,8 @@ class FunctionProcessor
 
         // Extract function chain and value
         // Pattern: "functionName|function2 {{variable}} param1 param2"
-        if (!preg_match('/^([a-z_|]+)\s+(.+)$/i', $expression, $matches)) {
+        // Allow letters, numbers, underscores, and pipes in function names
+        if (!preg_match('/^([a-z0-9_|]+)\s+(.+)$/i', $expression, $matches)) {
             return $expression;
         }
 

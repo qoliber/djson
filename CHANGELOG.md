@@ -5,7 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - 2025-11-17
+## [1.3.0] - 2025-11-18
+
+### Summary
+Version 1.3.0 fixes a critical bug that prevented custom functions with digits in their names (like `base64`, `md5hash`, `sha256`) from working. This was caused by regex patterns that only allowed letters, underscores, and pipes in function names.
+
+### Fixed
+
+#### Custom Function Name Parsing Bug
+- **Fixed regex pattern in FunctionProcessor** (`src/FunctionProcessor.php`)
+  - Changed `/^([a-z_|]+)/i` to `/^([a-z0-9_|]+)/i` in `validateFunction()` method
+  - Changed `/^([a-z_|]+)/i` to `/^([a-z0-9_|]+)/i` in `apply()` method
+  - Function names can now contain digits: `base64`, `md5hash`, `sha256`, `format2decimals`, etc.
+  - Previously, functions with numbers would be ignored and rendered as literal strings
+
+**Before (broken):**
+```php
+$djson->registerFunction('base64', fn($v) => base64_encode($v));
+// Result: "base64 {{email}}" (literal string)
+```
+
+**After (fixed):**
+```php
+$djson->registerFunction('base64', fn($v) => base64_encode($v));
+// Result: "dGVzdEBleGFtcGxlLmNvbQ==" (actual base64)
+```
+
+### Added
+
+#### Testing
+- **Custom Functions with Numbers Test Suite** (`tests/CustomFunctionsWithNumbersTest.php`)
+  - 13 tests covering function names with digits
+  - Tests for numbers at end: `test1`, `hash1`
+  - Tests for numbers in middle: `base64encode`, `format2decimals`
+  - Tests for multiple digits: `sha256`, `sha512hash`, `gravatar200`
+  - Tests for numbers at beginning: `3times`
+  - Tests in loops, with chaining, and with parameters
+  - Real-world use case: gravatar URL generation
+
+### Test Statistics
+- **183 total tests** (was 170 in v1.2.0)
+- **572 total assertions** (was 554 in v1.2.0)
+- **+13 new tests** specifically for numbered function names
+- **+18 new assertions**
+
+### Files Changed
+- `src/FunctionProcessor.php` - Fixed regex patterns to allow digits in function names (2 lines changed)
+- `tests/CustomFunctionsWithNumbersTest.php` - Comprehensive test coverage (+334 lines)
+
+### Backward Compatibility
+- ✅ Fully backward compatible
+- ✅ No breaking changes
+- ✅ All existing tests pass
+- ✅ Function names without numbers continue to work as before
+- ✅ This fix only enables previously broken functionality
+
+---
+
+## [1.2.0] - 2025-11-18
+
+### Summary
+Version 1.2.0 adds **render mode support** for debug vs production JSON output, comprehensive **real-world examples** covering all features, extensive **JSON-LD/Schema.org test coverage**, and a project **roadmap** for future development. Includes 45 new tests and 11 practical examples with documentation.
 
 ### Added
 
@@ -52,6 +112,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Compact mode single-line validation
   - Fluent interface chaining tests
   - Mode switching tests
+
+#### Documentation & Examples
+
+- **Comprehensive Examples Directory** (`examples/`)
+  - **11 standalone executable examples** covering all DJson features
+  - `01-basic-variables.php` - Variable interpolation, dot notation, type preservation
+  - `02-loops.php` - For loops, nested loops, arrays of objects
+  - `03-conditionals.php` - If/else, unless, exists, comparison operators
+  - `04-functions.php` - 25+ built-in functions, chaining, string/math/date operations
+  - `05-calculations-set.php` - Arithmetic, @djson set, tax/discount calculations
+  - `06-match-switch.php` - Pattern matching for order status, payments, roles
+  - `07-object-support.php` - PHP objects, getters, nested objects
+  - `08-jsonld-breadcrumbs.php` - Schema.org breadcrumbs, SEO, Unicode support
+  - `09-jsonld-product.php` - Product schema, reviews, variants, availability
+  - `10-complex-real-world.php` - Complete e-commerce order with all features
+  - `11-custom-functions.php` - Register and use custom functions
+  - `examples/README.md` - Learning path, use cases, feature matrix
+
+- **Roadmap Document** (`ROADMAP.md`)
+  - Future feature considerations (template comments, null coalescing, template registry)
+  - Priority ranking (high/medium/low)
+  - Contributing guidelines
+  - Decision criteria for new features
 
 ### Technical Details
 
@@ -106,6 +189,19 @@ $result = $djson->process($jsonTemplate, $data);
 - `tests/RenderModeTest.php` - Render mode test coverage (+277 lines)
 - `tests/JsonStringAndScalarArrayTest.php` - JSON string and scalar array tests (+377 lines)
 - `tests/StructuredDataTest.php` - Real-world JSON-LD tests (+465 lines)
+- `examples/01-basic-variables.php` - Basic variables example (+84 lines)
+- `examples/02-loops.php` - Loops example (+96 lines)
+- `examples/03-conditionals.php` - Conditionals example (+117 lines)
+- `examples/04-functions.php` - Functions example (+130 lines)
+- `examples/05-calculations-set.php` - Calculations example (+143 lines)
+- `examples/06-match-switch.php` - Match/switch example (+143 lines)
+- `examples/07-object-support.php` - Object support example (+158 lines)
+- `examples/08-jsonld-breadcrumbs.php` - JSON-LD breadcrumbs example (+122 lines)
+- `examples/09-jsonld-product.php` - JSON-LD product example (+197 lines)
+- `examples/10-complex-real-world.php` - Complex real-world example (+207 lines)
+- `examples/11-custom-functions.php` - Custom functions example (+377 lines)
+- `examples/README.md` - Examples documentation (+214 lines)
+- `ROADMAP.md` - Future roadmap (+330 lines)
 
 ### Test Statistics
 - **170 total tests** (was 125 in v1.1.0)
@@ -272,6 +368,7 @@ $result = $djson->process($template, ['product' => $product]);
 
 ---
 
+[1.3.0]: https://github.com/qoliber/djson/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/qoliber/djson/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/qoliber/djson/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/qoliber/djson/releases/tag/v1.0.0
