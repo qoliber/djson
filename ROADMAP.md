@@ -300,6 +300,282 @@ Based on potential impact and user needs:
 
 ---
 
+### 9. Enhanced Security - Network Function Blocking
+**Status:** Under Consideration
+**Priority:** High
+**Use Case:** Prevent templates from making external network requests
+
+Add network-related functions to dangerous patterns:
+
+```php
+// These would be BLOCKED
+$djson->registerFunction('fetch_data', function($url) {
+    return file_get_contents($url);  // Already blocked
+});
+
+$djson->registerFunction('api_call', function($url) {
+    $ch = curl_init($url);  // Would be blocked
+    return curl_exec($ch);
+});
+
+$djson->registerFunction('connect', function($host) {
+    return fsockopen($host, 80);  // Would be blocked
+});
+```
+
+**Patterns to Block:**
+- `curl_exec`, `curl_init`, `curl_setopt`, `curl_multi_exec`
+- `fsockopen`, `pfsockopen`
+- `socket_create`, `socket_connect`, `socket_send`
+- `stream_socket_client`, `stream_context_create`
+- `ftp_connect`, `ftp_login`, `ftp_get`
+- `ssh2_connect`, `ssh2_exec`
+
+**Benefits:**
+- Prevents Server-Side Request Forgery (SSRF) attacks
+- Blocks unauthorized external API calls
+- Prevents data exfiltration via network
+- Complete template isolation from network layer
+
+**Implementation:**
+- Add patterns to `DANGEROUS_PATTERNS` constant
+- Reflection validator already catches these inside callables
+- No performance impact (pattern matching only)
+
+---
+
+### 10. Performance - Cache Reflection Results
+**Status:** Under Consideration
+**Priority:** Medium
+**Use Case:** Improve performance when registering multiple functions
+
+Cache reflection-based validation results:
+
+```php
+// Current: Reflection runs every time
+$djson->registerFunction('currency', $currencyFormatter);  // Validates source
+$djson->registerFunction('currency', $currencyFormatter);  // Validates AGAIN (same closure)
+
+// Proposed: Cache by object hash
+private array $validatedCallables = [];
+
+private function validateCallableContent(string $name, callable $handler): void
+{
+    $hash = spl_object_hash($handler);
+    if (isset($this->validatedCallables[$hash])) {
+        return; // Already validated - skip reflection
+    }
+
+    // ... do reflection validation ...
+
+    $this->validatedCallables[$hash] = true;
+}
+```
+
+**Benefits:**
+- Faster function registration for the same callable
+- Reduced file I/O when re-registering functions
+- Better performance in tests with repeated registrations
+- No impact on security (same validation, just cached)
+
+**Trade-offs:**
+- Slightly more memory usage (hash map)
+- Cache invalidation if callable source changes (rare in production)
+
+---
+
+### 11. More Built-in Functions
+**Status:** Under Consideration
+**Priority:** Medium
+**Use Case:** Reduce need for custom function registration
+
+Add commonly useful functions to cover more use cases out of the box:
+
+**String Functions:**
+```json
+{
+  "hasKeyword": "{{description | contains 'PHP'}}",
+  "isEmail": "{{email | starts_with 'admin@'}}",
+  "isDomain": "{{url | ends_with '.com'}}",
+  "words": "{{text | split ' '}}",
+  "repeated": "{{char | repeat 5}}",
+  "backwards": "{{text | reverse}}"
+}
+```
+
+**Math Functions:**
+```json
+{
+  "lowest": "{{prices | min}}",
+  "highest": "{{prices | max}}",
+  "total": "{{prices | sum}}",
+  "average": "{{prices | avg}}",
+  "discount": "{{price | percentage 20}}"
+}
+```
+
+**Array Functions:**
+```json
+{
+  "properties": "{{object | keys}}",
+  "data": "{{object | values}}",
+  "batches": "{{items | chunk 10}}",
+  "reversed": "{{items | reverse}}",
+  "filtered": "{{items | filter}}"
+}
+```
+
+**Type Checking Functions:**
+```json
+{
+  "isEmpty": "{{value | is_empty}}",
+  "isNull": "{{value | is_null}}",
+  "isNumeric": "{{value | is_numeric}}",
+  "isString": "{{value | is_string}}",
+  "isArray": "{{value | is_array}}"
+}
+```
+
+**Benefits:**
+- Better out-of-box experience
+- Less boilerplate in user code
+- Covers 90% of common use cases
+- Consistent API across projects
+
+**Current Workaround:**
+Register these functions manually in every project
+
+---
+
+### 12. Template Debugging Mode
+**Status:** Under Consideration
+**Priority:** Medium
+**Use Case:** Understanding template processing and performance
+
+Add a debug mode that shows processing details:
+
+```php
+$djson = new DJson(['debug' => true]);
+
+$result = $djson->process($template, $data);
+
+// Get debug info
+$debugInfo = $djson->getDebugInfo();
+/*
+[
+    'directives_processed' => [
+        ['type' => 'for', 'path' => 'users', 'iterations' => 100, 'time_ms' => 2.5],
+        ['type' => 'if', 'path' => 'users[0].isPremium', 'result' => true, 'time_ms' => 0.1],
+        ['type' => 'match', 'path' => 'status', 'matched_case' => 'active', 'time_ms' => 0.2]
+    ],
+    'variables_resolved' => [
+        'user.name' => 'John Doe',
+        'user.email' => 'john@example.com',
+        'product.price' => 99.99
+    ],
+    'functions_called' => [
+        ['name' => 'upper', 'input' => 'hello', 'output' => 'HELLO', 'time_ms' => 0.05],
+        ['name' => 'number_format', 'input' => 99.99, 'output' => '99.99', 'time_ms' => 0.03]
+    ],
+    'total_time_ms' => 12.5,
+    'memory_peak_mb' => 2.1
+]
+*/
+```
+
+**Features:**
+- Directive execution trace with timing
+- Variable resolution steps
+- Function call logs with inputs/outputs
+- Performance metrics (time, memory)
+- Nested context tracking
+- Optional: Export debug log to file
+
+**Benefits:**
+- Easier debugging of complex templates
+- Performance profiling and optimization
+- Understanding data flow
+- Better developer experience
+- Useful for learning DJson
+
+**Use Cases:**
+- "Why is this template slow?"
+- "Which variable is undefined?"
+- "What data is being passed to this function?"
+- "How many times is this loop executing?"
+
+---
+
+### 13. Better Error Messages with Context
+**Status:** Under Consideration
+**Priority:** High
+**Use Case:** Faster debugging with contextual information
+
+*Enhancement to existing item #5 - Enhanced Error Messages*
+
+Add path-based error context for nested structures:
+
+**Current:**
+```
+Error: Invalid directive syntax
+```
+
+**Proposed:**
+```
+Template Error at path "users[0].profile.address.city":
+    "city": "{{user.address.city | upper}}"
+                                    ^
+Error: Unknown function 'upper_case'
+Did you mean: 'upper'?
+
+Available string functions: upper, lower, capitalize, title, trim, escape
+
+Context:
+  users[0].profile.name = "John Doe"
+  users[0].profile.address.street = "123 Main St"
+  users[0].profile.address.city = undefined ❌
+```
+
+**Features:**
+- JSON path to error location (e.g., `users[0].profile.name`)
+- Visual pointer to exact position
+- Suggestions for typos/mistakes
+- List of available functions/directives
+- Show surrounding context data
+- Distinguish between: syntax errors, missing data, type mismatches, security violations
+
+**Benefits:**
+- 10x faster debugging
+- Reduced support questions
+- Better onboarding for new users
+- Professional error handling
+
+---
+
+## Implementation Priority
+
+Based on potential impact and user needs:
+
+1. **High Priority**
+   - Enhanced Security - Network Function Blocking (security critical)
+   - Better Error Messages with Context (better DX)
+   - Template Validation Mode (safety)
+
+2. **Medium Priority**
+   - More Built-in Functions (reduce boilerplate)
+   - Template Debugging Mode (development experience)
+   - Performance - Cache Reflection Results (optimization)
+   - Null Coalescing Operator (convenience)
+   - Template Registry (reusability)
+
+3. **Low Priority**
+   - Template Comments (nice-to-have)
+   - Array Filter/Map (niche use case)
+   - Template Partials (can use registry)
+   - Custom Directive Registration (already possible)
+
+---
+
 ## Contributing Ideas
 
 Have a feature idea? We'd love to hear from you!
@@ -323,5 +599,5 @@ Features will be evaluated based on:
 
 ---
 
-**Last Updated:** 2025-11-17
-**Current Version:** 1.2.0
+**Last Updated:** 2025-11-18
+**Current Version:** 1.5.0
