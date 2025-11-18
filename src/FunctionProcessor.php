@@ -24,21 +24,167 @@ class FunctionProcessor
     /** @var array<string, callable> */
     private array $functions = [];
 
+    /**
+     * Dangerous function name patterns that pose security risks
+     * These patterns detect functions that could execute code, access filesystem, or run system commands
+     */
+    private const DANGEROUS_PATTERNS = [
+        // Code execution
+        'eval', 'assert', 'call_user_func', 'call_user_func_array',
+        // System commands
+        'exec', 'shell_exec', 'system', 'passthru', 'popen', 'proc_open', 'pcntl_exec',
+        // Filesystem operations
+        'file_get_contents', 'file_put_contents', 'fopen', 'fwrite', 'unlink', 'rmdir',
+        'chmod', 'chown', 'rename', 'copy', 'mkdir',
+        // Includes
+        'include', 'require', 'include_once', 'require_once',
+        // Serialization (can lead to object injection)
+        'unserialize',
+        // Reflection (can access private methods)
+        'reflection',
+        // Database functions - MySQL
+        'mysqli', 'mysql_',
+        // Database functions - PostgreSQL
+        'pg_',
+        // Database functions - SQLite
+        'sqlite',
+        // Database functions - PDO
+        'pdo',
+        // Database functions - ODBC
+        'odbc_',
+        // Database functions - SQL Server
+        'sqlsrv_',
+        // Database functions - Oracle
+        'oci_'
+    ];
+
     public function __construct()
     {
         $this->registerBuiltInFunctions();
     }
 
     /**
-     * Register a custom function
+     * Register a custom function with security validation
      *
      * @param string $name Function name
      * @param callable $handler Function handler
      * @return void
+     * @throws \InvalidArgumentException If function name contains dangerous patterns or callable contains dangerous code
      */
     public function register(string $name, callable $handler): void
     {
+        $this->validateFunctionSafety($name);
+        $this->validateCallableContent($name, $handler);
         $this->functions[$name] = $handler;
+    }
+
+    /**
+     * Validate that a function name doesn't contain dangerous patterns
+     *
+     * @param string $name Function name to validate
+     * @return void
+     * @throws \InvalidArgumentException If function name is potentially dangerous
+     */
+    private function validateFunctionSafety(string $name): void
+    {
+        $nameLower = strtolower($name);
+
+        foreach (self::DANGEROUS_PATTERNS as $pattern) {
+            if (str_contains($nameLower, $pattern)) {
+                throw new \InvalidArgumentException(
+                    "Cannot register function '$name': Function name contains potentially dangerous pattern '$pattern'. " .
+                    "This library blocks registration of functions that could execute code, run system commands, " .
+                    "or perform dangerous filesystem operations. If you absolutely need this functionality and " .
+                    "understand the security risks, use registerUnsafeFunction() instead."
+                );
+            }
+        }
+    }
+
+    /**
+     * Validate that callable content doesn't contain dangerous code
+     * Uses PHP Reflection to inspect the callable source code for prohibited function calls
+     *
+     * @param string $name Function name (for error messages)
+     * @param callable $handler Callable to validate
+     * @return void
+     * @throws \InvalidArgumentException If callable contains dangerous code patterns
+     */
+    private function validateCallableContent(string $name, callable $handler): void
+    {
+        try {
+            $reflection = null;
+
+            if ($handler instanceof \Closure) {
+                $reflection = new \ReflectionFunction($handler);
+            } elseif (is_array($handler)) {
+                $reflection = new \ReflectionMethod($handler[0], $handler[1]);
+            } elseif (is_string($handler) && function_exists($handler)) {
+                $reflection = new \ReflectionFunction($handler);
+            } elseif (is_object($handler) && method_exists($handler, '__invoke')) {
+                $reflection = new \ReflectionMethod($handler, '__invoke');
+            }
+
+            if ($reflection === null) {
+                return;
+            }
+
+            $filename = $reflection->getFileName();
+            $startLine = $reflection->getStartLine();
+            $endLine = $reflection->getEndLine();
+
+            if ($filename === false || $startLine === false || $endLine === false) {
+                return;
+            }
+
+            $source = file($filename);
+            if ($source === false) {
+                return;
+            }
+
+            $functionSource = implode('', array_slice($source, $startLine - 1, $endLine - $startLine + 1));
+            $functionSourceLower = strtolower($functionSource);
+
+            foreach (self::DANGEROUS_PATTERNS as $pattern) {
+                $escapedPattern = preg_quote($pattern, '/');
+
+                // Match pattern at word boundary, optionally followed by underscore and more word chars, then parenthesis
+                // This handles: eval(), mysqli_connect(), pg_query(), etc.
+                $regex = '/\b' . $escapedPattern . '[\w_]*\s*\(/i';
+
+                if (preg_match($regex, $functionSourceLower)) {
+                    throw new \InvalidArgumentException(
+                        "Cannot register function '$name': The callable's source code contains a call to prohibited function pattern '$pattern'. " .
+                        "This library blocks registration of functions that could execute code, run system commands, access databases, " .
+                        "or perform dangerous filesystem operations. Templates are for rendering data, not executing code."
+                    );
+                }
+            }
+        } catch (\ReflectionException $e) {
+            return;
+        }
+    }
+
+    /**
+     * Register an unsafe function (bypasses security validation)
+     *
+     * Just kidding! There is NO bypass. Security is MANDATORY.
+     *
+     * This library takes security seriously. If you need dangerous functionality,
+     * implement it outside the template system where you can properly control access.
+     *
+     * @param string $name Function name
+     * @param callable $handler Function handler
+     * @return void
+     * @throws \BadMethodCallException Always throws - unsafe functions are not allowed
+     */
+    public function registerUnsafeFunction(string $name, callable $handler): void
+    {
+        throw new \BadMethodCallException(
+            "Sorry matey, no unsafe functions allowed in DJson! Security is mandatory, not optional. " .
+            "If you need to execute system commands or access files, do it OUTSIDE the template system " .
+            "where you have proper access controls. Templates are for rendering data, not executing code."
+        );
     }
 
     /**

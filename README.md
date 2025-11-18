@@ -2,10 +2,11 @@
 
 A powerful yet lightweight PHP library for creating dynamic JSON with loops, conditionals, functions, variables, and pattern matching. Think of it as a feature-rich templating engine specifically designed for JSON generation.
 
-[![Tests](https://img.shields.io/badge/tests-103%20passed-brightgreen)](https://github.com/qoliber/djson)
+[![Tests](https://img.shields.io/badge/tests-229%20passed-brightgreen)](https://github.com/qoliber/djson)
 [![Mutation Score](https://img.shields.io/badge/mutation%20score-100%25-brightgreen)](https://github.com/qoliber/djson)
 [![PHP Version](https://img.shields.io/badge/php-%3E%3D8.1-blue)](https://php.net)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Security](https://img.shields.io/badge/security-mandatory-brightgreen)](https://github.com/qoliber/djson)
 
 ## 🚀 Features
 
@@ -20,6 +21,7 @@ A powerful yet lightweight PHP library for creating dynamic JSON with loops, con
 - **Loop Helpers**: Access `_index`, `_key`, `_first`, `_last` in loops
 - **Type Preservation**: Maintains data types (numbers, booleans, null)
 - **Error Handling**: Comprehensive validation with detailed error messages
+- **Security First**: Mandatory protection against dangerous functions (eval, exec, shell_exec, etc.)
 - **PHP 8.1+**: Modern PHP with constructor property promotion
 
 📚 **Full Documentation**: [https://djson.dev](https://djson.dev)
@@ -57,6 +59,68 @@ $data = [
 $result = $djson->process($template, $data);
 // ['greeting' => 'Hello WORLD!', 'users' => [...]]
 ```
+
+## Security
+
+DJson takes security seriously with **mandatory protection** against dangerous function registration.
+
+### What's Protected
+
+```php
+// These are BLOCKED - throws InvalidArgumentException
+$djson->registerFunction('exec', fn($cmd) => shell_exec($cmd));
+$djson->registerFunction('eval', fn($code) => eval($code));
+$djson->registerFunction('file_get_contents', fn($path) => file_get_contents($path));
+// Error: "dangerous pattern 'exec'... use registerUnsafeFunction()"
+
+// Trying the "unsafe" method? ALSO blocked! (troll mode activated)
+$djson->registerUnsafeFunction('exec', fn($cmd) => shell_exec($cmd));
+// Error: "Sorry matey, no unsafe functions allowed! Security is mandatory!"
+```
+
+### Protected Patterns
+
+- **Code Execution**: `eval`, `assert`, `call_user_func`
+- **System Commands**: `exec`, `shell_exec`, `system`, `passthru`, `popen`, `proc_open`
+- **Filesystem**: `file_get_contents`, `file_put_contents`, `unlink`, `chmod`, `rename`
+- **Includes**: `include`, `require`, `include_once`, `require_once`
+- **Serialization**: `unserialize`
+- **Reflection**: `reflection`
+- **Database Functions**: `mysqli`, `mysql_`, `pg_`, `sqlite`, `pdo`, `odbc_`, `sqlsrv_`, `oci_`
+
+### Safe Functions Work Fine
+
+```php
+// These are SAFE and work perfectly
+$djson->registerFunction('currency', fn($v, $s = '$') => $s . number_format($v, 2));
+$djson->registerFunction('md5hash', fn($v) => md5($v));
+$djson->registerFunction('base64', fn($v) => base64_encode($v));
+$djson->registerFunction('truncate', fn($v, $len = 50) => substr($v, 0, $len) . '...');
+```
+
+### Why No Bypass?
+
+Security is **mandatory, not optional**. If you need to execute system commands or access files, do it **outside the template system** where you have proper access controls. Templates are for rendering data, not executing code.
+
+### Deep Code Inspection
+
+DJson uses **PHP Reflection** to inspect the actual source code of registered callables, not just function names:
+
+```php
+// BLOCKED - Even though function name is safe, the code inside is dangerous!
+$djson->registerFunction('process_data', function ($input) {
+    return eval($input);  // Detected via reflection!
+});
+// Error: "callable's source code contains a call to prohibited function pattern 'eval'"
+
+// BLOCKED - Database access detected in callable
+$djson->registerFunction('get_user', function ($id) {
+    return mysqli_query($conn, "SELECT * FROM users WHERE id = $id");
+});
+// Error: "callable's source code contains a call to prohibited function pattern 'mysqli'"
+```
+
+This means you **cannot bypass security** by wrapping dangerous functions inside safe-looking closures. DJson analyzes the actual implementation and blocks any dangerous code patterns.
 
 ## Core Features
 

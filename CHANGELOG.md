@@ -5,10 +5,199 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2025-11-18
+
+### Summary
+Version 1.5.0 enhances security with **database function blocking** and **reflection-based code inspection**. DJson now inspects the actual source code of registered callables using PHP Reflection, preventing dangerous code from being hidden inside safe-looking function names.
+
+### Added
+
+#### Enhanced Security - Database Function Blocking
+- **Database function patterns blocked** (`src/FunctionProcessor.php`)
+  - MySQL: `mysqli`, `mysql_`
+  - PostgreSQL: `pg_`
+  - SQLite: `sqlite`
+  - PDO: `pdo`
+  - ODBC: `odbc_`
+  - SQL Server: `sqlsrv_`
+  - Oracle: `oci_`
+  - Prevents database access vulnerabilities in templates
+
+**Database Functions are Blocked:**
+```php
+// BLOCKED - function name contains database pattern
+$djson->registerFunction('mysqli_query', fn($q) => "SAFE: $q");
+// Error: "dangerous pattern 'mysqli'"
+
+$djson->registerFunction('pg_query', fn($q) => "SAFE: $q");
+// Error: "dangerous pattern 'pg_'"
+
+$djson->registerFunction('pdo_connect', fn() => "SAFE");
+// Error: "dangerous pattern 'pdo'"
+```
+
+#### Reflection-Based Code Inspection
+- **Deep callable content validation** (`src/FunctionProcessor.php`)
+  - Uses PHP Reflection API to inspect callable source code
+  - Detects dangerous function calls inside registered callables
+  - Prevents security bypasses by wrapping dangerous code in safe function names
+  - Analyzes closures, methods, and callable objects
+  - Validates against all dangerous patterns (code execution, system commands, database, filesystem)
+
+**No Security Bypass - Code is Inspected:**
+```php
+// BLOCKED - Even though function name is safe, eval() detected inside!
+$djson->registerFunction('process_data', function ($input) {
+    return eval($input);
+});
+// Error: "callable's source code contains a call to prohibited function pattern 'eval'"
+
+// BLOCKED - Database access detected inside callable
+$djson->registerFunction('get_user', function ($id) {
+    return mysqli_query($conn, "SELECT * FROM users WHERE id = $id");
+});
+// Error: "callable's source code contains a call to prohibited function pattern 'mysqli'"
+
+// BLOCKED - System commands detected inside
+$djson->registerFunction('run_task', function ($cmd) {
+    return shell_exec($cmd);
+});
+// Error: "callable's source code contains a call to prohibited function pattern 'exec'"
+```
+
+### Testing
+- **Enhanced Security Test Suite** (`tests/SecurityTest.php`)
+  - +17 new tests (was 29 tests in v1.4.0, now 46 tests)
+  - Tests database function name blocking (8 tests)
+  - Tests reflection-based code inspection (7 tests)
+  - Tests for all database patterns: MySQL, PostgreSQL, SQLite, PDO, ODBC, SQL Server, Oracle
+  - Tests for dangerous code hidden inside callables
+  - Removed obsolete `create_function` test (removed in PHP 8.0, library requires PHP 8.1+)
+
+### Test Statistics
+- **229 total tests** (was 212 in v1.4.0)
+- **664 total assertions** (was 630 in v1.4.0)
+- **+17 new security tests**
+- **+34 new assertions**
+
+### Changed
+- **Removed obsolete `create_function` pattern** (`src/FunctionProcessor.php`)
+  - `create_function()` was removed in PHP 8.0
+  - DJson requires PHP 8.1+, so this pattern is no longer relevant
+  - Cleaner, more accurate security validation
+
+### Files Changed
+- `src/FunctionProcessor.php` - Database patterns added, reflection-based validation implemented, removed obsolete create_function pattern
+- `tests/SecurityTest.php` - Enhanced security test coverage, removed obsolete create_function test
+- `README.md` - Updated security documentation with database blocking and reflection examples
+
+### Backward Compatibility
+- Fully backward compatible for safe functions
+- BREAKING: Database function names now blocked (intentional security enhancement)
+- BREAKING: Callables containing dangerous code now blocked (intentional security enhancement)
+
+## [1.4.0] - 2025-11-18
+
+### Summary
+Version 1.4.0 adds **mandatory security protection** against dangerous function registration, preventing code execution and system command vulnerabilities. No backdoors, no compromises - security is mandatory, not optional.
+
+### Added
+
+#### Security Feature - Dangerous Function Name Validation
+- **Mandatory security validation** when registering custom functions
+  - Blocks registration of functions with dangerous patterns (`eval`, `exec`, `shell_exec`, etc.)
+  - Prevents code execution vulnerabilities
+  - Blocks system command injection risks
+  - Prevents filesystem access vulnerabilities
+  - Protects against serialization attacks
+
+- **Comprehensive Pattern Detection** (`src/FunctionProcessor.php`)
+  - Code execution: `eval`, `assert`, `call_user_func`
+  - System commands: `exec`, `shell_exec`, `system`, `passthru`, `popen`, `proc_open`
+  - Filesystem: `file_get_contents`, `file_put_contents`, `fopen`, `unlink`, `chmod`, `rename`
+  - Includes: `include`, `require`, `include_once`, `require_once`
+  - Serialization: `unserialize`
+  - Reflection: `reflection`
+
+- **No Escape Hatch** - `registerUnsafeFunction()` also throws exception
+  - Method exists but ALSO throws `BadMethodCallException`
+  - Security is mandatory, not optional
+  - No backdoors, no compromises
+  - If you need dangerous functionality, implement it outside the template system
+
+**Security by Default (No Compromises):**
+```php
+// This is BLOCKED - throws InvalidArgumentException
+$djson->registerFunction('exec', fn($cmd) => shell_exec($cmd));
+// Error suggests trying registerUnsafeFunction()...
+
+// BUT PLOT TWIST: That ALSO throws! BadMethodCallException
+$djson->registerUnsafeFunction('exec', fn($cmd) => shell_exec($cmd));
+// Error: "Sorry matey, no unsafe functions allowed! Security is mandatory!"
+
+// These work fine - safe functions only
+$djson->registerFunction('currency', fn($v) => '$' . $v);
+$djson->registerFunction('md5hash', fn($v) => md5($v)); // Safe!
+```
+
+### Fixed
+
+#### Custom Function Name Parsing Bug
+- **Fixed regex pattern in FunctionProcessor** (`src/FunctionProcessor.php`)
+  - Changed `/^([a-z_|]+)/i` to `/^([a-z0-9_|]+)/i` in `validateFunction()` method
+  - Changed `/^([a-z_|]+)/i` to `/^([a-z0-9_|]+)/i` in `apply()` method
+  - Function names can now contain digits: `base64`, `md5hash`, `sha256`, `format2decimals`, etc.
+  - Previously, functions with numbers would be ignored and rendered as literal strings
+
+**Before (broken):**
+```php
+$djson->registerFunction('base64', fn($v) => base64_encode($v));
+// Result: "base64 {{email}}" (literal string)
+```
+
+**After (fixed):**
+```php
+$djson->registerFunction('base64', fn($v) => base64_encode($v));
+// Result: "dGVzdEBleGFtcGxlLmNvbQ==" (actual base64)
+```
+
+### Added
+
+#### Testing
+- **Security Test Suite** (`tests/SecurityTest.php`)
+  - 29 tests for dangerous function name validation
+  - Tests blocking of code execution functions (eval, assert, create_function)
+  - Tests blocking of system command functions (exec, shell_exec, system, passthru)
+  - Tests blocking of filesystem functions (file_get_contents, unlink, chmod)
+  - Tests blocking of include/require functions
+  - Tests blocking of serialization functions (unserialize)
+  - Tests pattern detection in function names (case-insensitive)
+  - Tests that safe function names work correctly
+  - Tests that registerUnsafeFunction() ALSO throws exception (troll mode!)
+
+### Test Statistics
+- **212 total tests** (was 183 in v1.3.0)
+- **630 total assertions** (was 572 in v1.3.0)
+- **+29 new security tests**
+- **+58 new assertions**
+
+### Files Changed
+- `src/FunctionProcessor.php` - Security validation with dangerous pattern detection
+- `src/DJson.php` - Added registerUnsafeFunction() method (troll mode)
+- `tests/SecurityTest.php` - Security test coverage (+340 lines)
+
+### Backward Compatibility
+- Fully backward compatible for safe functions
+- BREAKING: Dangerous function names now blocked (this is intentional security)
+- All safe functions continue to work
+- No legitimate use case should be affected
+
+---
+
 ## [1.3.0] - 2025-11-18
 
 ### Summary
-Version 1.3.0 fixes a critical bug that prevented custom functions with digits in their names (like `base64`, `md5hash`, `sha256`) from working. This was caused by regex patterns that only allowed letters, underscores, and pipes in function names.
+Version 1.3.0 fixes a critical bug that prevented custom functions with digits in their names (like `base64`, `md5hash`, `sha256`) from working.
 
 ### Fixed
 
@@ -54,11 +243,11 @@ $djson->registerFunction('base64', fn($v) => base64_encode($v));
 - `tests/CustomFunctionsWithNumbersTest.php` - Comprehensive test coverage (+334 lines)
 
 ### Backward Compatibility
-- ✅ Fully backward compatible
-- ✅ No breaking changes
-- ✅ All existing tests pass
-- ✅ Function names without numbers continue to work as before
-- ✅ This fix only enables previously broken functionality
+- Fully backward compatible
+- No breaking changes
+- All existing tests pass
+- Function names without numbers continue to work as before
+- This fix only enables previously broken functionality
 
 ---
 
@@ -368,6 +557,7 @@ $result = $djson->process($template, ['product' => $product]);
 
 ---
 
+[1.4.0]: https://github.com/qoliber/djson/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/qoliber/djson/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/qoliber/djson/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/qoliber/djson/compare/v1.0.0...v1.1.0

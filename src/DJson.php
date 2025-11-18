@@ -100,15 +100,37 @@ class DJson
     }
 
     /**
-     * Register a custom function
+     * Register a custom function with security validation
+     *
+     * Security: This method validates function names against dangerous patterns
+     * (eval, exec, shell_exec, file operations, etc.) to prevent code execution risks.
      *
      * @param string $name Function name
      * @param callable $handler Function handler
      * @return void
+     * @throws \InvalidArgumentException If function name contains dangerous patterns
      */
     public function registerFunction(string $name, callable $handler): void
     {
         $this->functions->register($name, $handler);
+    }
+
+    /**
+     * Register an unsafe function (bypasses security validation)
+     *
+     * Just kidding! There is NO bypass. Security is MANDATORY.
+     *
+     * This library takes security seriously. If you need dangerous functionality,
+     * implement it outside the template system where you can properly control access.
+     *
+     * @param string $name Function name
+     * @param callable $handler Function handler
+     * @return void
+     * @throws \BadMethodCallException Always throws - unsafe functions are not allowed
+     */
+    public function registerUnsafeFunction(string $name, callable $handler): void
+    {
+        $this->functions->registerUnsafeFunction($name, $handler);
     }
 
     /**
